@@ -1,10 +1,21 @@
 import os
 import sys
-import csv
+import psycopg2
 from tree_sitter import Language, Parser
 
+# Config
 GRAMMAR_PATH = "tree-sitter-c-sharp"
 BUILD_LIB_PATH = "build/my-languages.so"
+
+DB_CONFIG = {
+    "dbname": "semantic_search",
+    "user": "postgres",
+    "password": "root",
+    "host": "localhost",
+    "port": 5432,
+}
+
+TABLE_NAME = "code_functions"
 
 def build_language():
     if not os.path.exists(BUILD_LIB_PATH):
@@ -26,7 +37,8 @@ def find_ancestor_of_type(node, ancestor_type):
     return None
 
 def get_node_name(node, code_bytes):
-    # Try to get the declared name from typical child nodes like 'identifier'
+    if not node:
+        return ""
     for child in node.children:
         if child.type == "identifier":
             return code_bytes[child.start_byte:child.end_byte].decode("utf8")
@@ -37,14 +49,12 @@ def extract_functions_with_context(code_bytes, root_node):
     def visit(node):
         if node.type == "method_declaration":
             func_text = code_bytes[node.start_byte:node.end_byte].decode("utf8").strip()
-            
-            # Find parent class
-            parent_class_node = find_ancestor_of_type(node, "class_declaration")
-            parent_class_name = get_node_name(parent_class_node, code_bytes) if parent_class_node else ""
 
-            # Find namespace
+            parent_class_node = find_ancestor_of_type(node, "class_declaration")
+            parent_class_name = get_node_name(parent_class_node, code_bytes)
+
             namespace_node = find_ancestor_of_type(node, "namespace_declaration")
-            namespace_name = get_node_name(namespace_node, code_bytes) if namespace_node else ""
+            namespace_name = get_node_name(namespace_node, code_bytes)
 
             functions.append({
                 "namespace": namespace_name,
@@ -55,6 +65,18 @@ def extract_functions_with_context(code_bytes, root_node):
             visit(child)
     visit(root_node)
     return functions
+
+def insert_into_db(file_name, functions):
+    conn = psycopg2.connect(**DB_CONFIG)
+    cur = conn.cursor()
+    for func in functions:
+        cur.execute(f"""
+            INSERT INTO {TABLE_NAME} (filename, namespace, parent_class, function_text)
+            VALUES (%s, %s, %s, %s)
+        """, (file_name, func["namespace"], func["parent_class"], func["function_text"]))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def main():
     if len(sys.argv) < 2:
@@ -83,19 +105,9 @@ def main():
         print("No functions found.")
         return
 
-    output_csv = "functions_output.csv"
-    with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=["filename", "namespace", "parent_class", "function_text"])
-        writer.writeheader()
-        for func in funcs:
-            writer.writerow({
-                "filename": os.path.basename(file_path),
-                "namespace": func["namespace"],
-                "parent_class": func["parent_class"],
-                "function_text": func["function_text"]
-            })
+    insert_into_db(os.path.basename(file_path), funcs)
 
-    print(f"Extracted {len(funcs)} functions. Output written to {output_csv}")
+    print(f"Inserted {len(funcs)} functions from {file_path} into {TABLE_NAME}.")
 
 if __name__ == "__main__":
     main()

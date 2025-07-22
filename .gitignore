@@ -1,2 +1,3 @@
-test_files/*
-build/*
+code_parsing/test_files/*
+code_parsing/build/*
+code_parsing/tree-sitter-c-sharp/*

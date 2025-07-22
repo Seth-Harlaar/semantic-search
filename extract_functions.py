@@ -10,7 +10,7 @@ BUILD_LIB_PATH = "build/my-languages.so"
 DB_CONFIG = {
     "dbname": "semantic_search",
     "user": "postgres",
-    "password": "root",
+    "password": "pa55w0rd",
     "host": "localhost",
     "port": 5432,
 }
